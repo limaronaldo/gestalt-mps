@@ -9,16 +9,29 @@ Mask modes:
 - isolated_mask_mod: same as document but also blocks cross-modality attention.
 """
 
+# MODIFIED from Gestalt upstream: defer FlexAttention compilation until use.
+
 import torch
 
 try:
     from torch.nn.attention.flex_attention import flex_attention, create_block_mask
 
-    _compiled_flex_attn = torch.compile(flex_attention)
 except ImportError:
     flex_attention = None
     create_block_mask = None
-    _compiled_flex_attn = None
+
+
+_flex_attn_impl = None
+
+
+def _compiled_flex_attn(*args, **kwargs):
+    """Compile once, only when the CUDA training path invokes FlexAttention."""
+    global _flex_attn_impl
+    if flex_attention is None:
+        raise RuntimeError("FlexAttention is not available in this PyTorch build.")
+    if _flex_attn_impl is None:
+        _flex_attn_impl = torch.compile(flex_attention)
+    return _flex_attn_impl(*args, **kwargs)
 
 
 def _make_document_mask_mod(document_ids, is_padding):
