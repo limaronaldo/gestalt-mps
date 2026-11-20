@@ -47,7 +47,7 @@ class TinyModel:
         assert torch.is_inference_mode_enabled()
         assert (system_tokens, user_tokens[0]) == ([ord("s")], ord("p"))
         assert (gen_length, steps, block_length) == (128, 64, 64)
-        return [ord("t")]
+        return [ord("t"), 142750]
 
 
 class TinyCodec:

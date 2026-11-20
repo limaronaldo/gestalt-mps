@@ -15,7 +15,7 @@ from gestalt.model.templates import (
     DEFAULT_MMU_SYSTEM_PROMPT,
     build_mmu_condition,
     build_t2i_condition,
-    interaction_token_ids,
+    build_text_condition,
 )
 
 from .artifacts import ArtifactPaths
@@ -115,6 +115,12 @@ def _raw_visual_ids(visual_ids: torch.Tensor, grid_size: int) -> np.ndarray:
     if values.min() < _VISUAL_OFFSET or values.max() >= _VISUAL_OFFSET + _CODEBOOK_SIZE:
         raise RuntimeError("Gestalt returned visual token IDs outside the model-space range.")
     return values[0].astype(np.int32) - _VISUAL_OFFSET
+
+
+def _decode_answer(tokenizer, tokens: list[int]) -> str:
+    # The model has extra rows for interplay and reserved IDs absent from the tokenizer.
+    decodable = [token for token in tokens if 0 <= token < VOCAB_CONFIG.VISUAL_TOKEN_END]
+    return tokenizer.decode(decodable, skip_special_tokens=True)
 
 
 @torch.inference_mode()
@@ -230,7 +236,7 @@ def ask(
             temperature=0.0,
             remasking="low_confidence",
         )
-    return tokenizer.decode(tokens, skip_special_tokens=True)
+    return _decode_answer(tokenizer, tokens)
 
 
 @torch.inference_mode()
@@ -243,8 +249,7 @@ def text(
     system_prompt: str,
 ) -> str:
     system, user = _encode_prompts(artifacts.gestalt_dir, system_prompt, prompt)
-    # Text uses the same system/user markers but omits the interplay tokens.
-    condition_length = len(build_t2i_condition(system, user)) - len(interaction_token_ids())
+    condition_length = len(build_text_condition(system, user))
     _check_length(condition_length + 3 + _ANSWER_LENGTH)
 
     with _phase("model_load"):
@@ -257,4 +262,4 @@ def text(
             steps=_ANSWER_STEPS,
             block_length=_BLOCK_LENGTH,
         )
-    return tokenizer.decode(tokens, skip_special_tokens=True)
+    return _decode_answer(tokenizer, tokens)

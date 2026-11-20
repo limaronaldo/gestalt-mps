@@ -143,6 +143,15 @@ def test_custom_dir_truncated_weight_fails(hub, tmp_path):
     assert artifacts.inspect_artifacts(d)["gestalt/weights.safetensors"] is False
 
 
+def test_custom_dir_rejects_same_size_metadata_from_another_snapshot(hub, tmp_path):
+    directory = tmp_path / "root"
+    artifacts.download_artifacts(directory)
+    (directory / "gestalt" / "config.json").write_bytes(b"[]")
+
+    with pytest.raises(ArtifactError, match="config.json.*SHA-256"):
+        artifacts.resolve_artifacts(directory, require_ibq=False)
+
+
 def test_ibq_not_required_ignores_missing_ibq(hub, tmp_path):
     d = tmp_path / "root"
     artifacts.download_artifacts(d)

@@ -50,10 +50,10 @@ def _g(name: str, size: int | None = None, sha: str | None = None) -> FileSpec:
 
 
 ARTIFACT_SPECS: tuple[FileSpec, ...] = (
-    _g("config.json"),
-    _g("generation_config.json"),
-    _g("tokenizer.json"),
-    _g("tokenizer_config.json"),
+    _g("config.json", 1_643, "9ecef667b02b0785d0feaff230375bdcd285d70b9c75a67de98f98ffa2a79b21"),
+    _g("generation_config.json", 219, "cdf74e06270989d7eedeb01c3aa747c5b5864967bd0f5bec3fc0a5ae7d230ba9"),
+    _g("tokenizer.json", 12_834_462, "9ed814b03fb887c8089287493702fc753df11167218ba4b92991bd95970a4c32"),
+    _g("tokenizer_config.json", 221, "68674b8ca1d1db53dd587c0052fd74c3fa7cf4b259467e1ecd4d364473cf8a19"),
     _g(
         "model.safetensors",
         17_507_601_848,
@@ -69,8 +69,8 @@ ARTIFACT_SPECS: tuple[FileSpec, ...] = (
     ),
 )
 
-# (resolved path, size, mtime_ns) of files hashed OK in this process.
-_VERIFIED: set[tuple[str, int, int]] = set()
+# Identity and expected digest of files already checked in this process.
+_VERIFIED: set[tuple[str, int, int, int, int, int, str]] = set()
 
 
 # -- injectable Hub access ---------------------------------------------------
@@ -108,9 +108,9 @@ def _sha256_file(path: Path, chunk_size: int = _CHUNK) -> str:
     return digest.hexdigest()
 
 
-def _cache_key(path: Path) -> tuple[str, int, int]:
+def _cache_key(path: Path, digest: str) -> tuple[str, int, int, int, int, int, str]:
     st = path.stat()
-    return (str(path.resolve()), st.st_size, st.st_mtime_ns)
+    return (str(path.resolve()), st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns, digest)
 
 
 def _check_file(spec: FileSpec, path: Path, *, full: bool) -> None:
@@ -124,7 +124,7 @@ def _check_file(spec: FileSpec, path: Path, *, full: bool) -> None:
             f"(incomplete or wrong file at {path})."
         )
     if full and spec.sha256 is not None:
-        key = _cache_key(path)
+        key = _cache_key(path, spec.sha256)
         if key in _VERIFIED:
             return
         actual = _sha256_file(path)
@@ -190,6 +190,11 @@ def resolve_artifacts(directory: Path | None, *, require_ibq: bool) -> ArtifactP
         if path is None:
             missing.append(spec.key)
         else:
+            if spec.filename.endswith(".json"):
+                try:
+                    _check_file(spec, path, full=True)
+                except ArtifactError as exc:
+                    raise ArtifactError(f"{exc} {_fix_hint(directory)}") from exc
             paths[spec.key] = path
     if missing:
         where = "Hugging Face cache" if directory is None else f"directory {directory}"
@@ -286,7 +291,7 @@ def _fetch(spec: FileSpec, directory: Path | None) -> None:
 def verify_ibq_checkpoint(checkpoint: Path) -> None:
     """Size + streamed SHA-256 check; must run before the checkpoint is deserialized.
 
-    Each file is hashed at most once per process (keyed by path, size, mtime).
+    Unchanged files are hashed only once per process.
     """
     spec = _specs_for("ibq")[0]
     _check_file(spec, Path(checkpoint), full=True)
