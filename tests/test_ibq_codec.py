@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+from dataclasses import replace
+
 import numpy as np
 import pytest
 import torch
@@ -435,17 +438,29 @@ def test_verify_runs_before_deserialisation_with_restricted_loader(
 
 
 def test_bad_hash_blocks_load(monkeypatch, tiny_ckpt):
-    def boom(path):
-        raise RuntimeError("hash mismatch")
-
-    monkeypatch.setattr(ibq_codec.artifacts, "verify_ibq_checkpoint", boom)
+    artifacts = ibq_codec.artifacts
+    official = next(spec for spec in artifacts.ARTIFACT_SPECS if spec.subdir == "ibq")
+    fixture_spec = replace(
+        official, size=tiny_ckpt.stat().st_size, sha256="0" * 64,
+    )
+    monkeypatch.setattr(artifacts, "ARTIFACT_SPECS", (fixture_spec,))
 
     def no_load(*a, **k):  # pragma: no cover - must not run
         raise AssertionError("torch.load called before verification")
 
     monkeypatch.setattr(torch, "load", no_load)
-    with pytest.raises(RuntimeError, match="hash mismatch"):
+    with pytest.raises(artifacts.ArtifactError, match="SHA-256"):
         IBQCodec.from_checkpoint(tiny_ckpt, CPU, config=TINY)
+
+
+def test_valid_hash_allows_restricted_codec_load(monkeypatch, tiny_ckpt):
+    artifacts = ibq_codec.artifacts
+    official = next(spec for spec in artifacts.ARTIFACT_SPECS if spec.subdir == "ibq")
+    contents = tiny_ckpt.read_bytes()
+    fixture_spec = replace(official, size=len(contents), sha256=hashlib.sha256(contents).hexdigest())
+    monkeypatch.setattr(artifacts, "ARTIFACT_SPECS", (fixture_spec,))
+    codec = IBQCodec.from_checkpoint(tiny_ckpt, CPU, config=TINY)
+    assert codec.model.quantize.embedding.weight[0, 0].item() == 0.5
 
 
 class _Unsafe:
