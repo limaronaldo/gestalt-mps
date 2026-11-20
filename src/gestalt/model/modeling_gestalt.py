@@ -1,3 +1,4 @@
+# Modified for gestalt-mps: inference sampling and text-only adaptation.
 from .configuration_llada import LLaDAConfig
 import torch
 import torch.nn as nn
@@ -8,7 +9,7 @@ logger = logging.getLogger(__name__)
 import math
 from gestalt.model.config import SPECIAL_TOKENS, VOCAB_CONFIG
 from gestalt.model.mrope import compute_2d_position_ids
-from gestalt.model.templates import build_mmu_condition, build_t2i_condition
+from gestalt.model.templates import build_mmu_condition, build_t2i_condition, build_text_condition
 import torch.nn.functional as F
 
 MASK = SPECIAL_TOKENS.MASK
@@ -223,8 +224,30 @@ class GestaltModelLM(LLaDAModelLM):
 
         token_list = prefix + [MASK] * gen_length + [EOA]
         x = torch.tensor(token_list, device=device).unsqueeze(0)
-        document_ids = torch.zeros_like(x)
+        position_ids = compute_2d_position_ids(
+            x,
+            image_grids=[(int(token_h), int(token_w))],
+        ).to(x.device)
+        return self._generate_text_answer(x, position_ids, ans_start, gen_length, steps, block_length, temperature, remasking)
 
+    @torch.no_grad()
+    def generate_text(
+        self, *, system_tokens: list[int], user_tokens: list[int],
+        gen_length: int = 128, steps: int = 64, block_length: int = 64,
+    ) -> list[int]:
+        """Experimental text-only generation using the Stage-III image-free branch."""
+        device = self.model.transformer.wte.weight.device
+        prefix = build_text_condition(system_tokens, user_tokens) + [BOA, BOS]
+        x = torch.tensor(prefix + [MASK] * gen_length + [EOA], device=device).unsqueeze(0)
+        positions = torch.arange(x.shape[1], device=device).view(1, 1, -1).expand(2, 1, -1)
+        return self._generate_text_answer(x, positions, len(prefix), gen_length, steps, block_length, 0.0, "low_confidence")
+
+    def _generate_text_answer(self, x, position_ids, ans_start, gen_length, steps, block_length, temperature, remasking):
+        if gen_length <= 0 or steps <= 0 or block_length <= 0:
+            raise ValueError("gen_length, steps, and block_length must be positive.")
+        device = x.device
+        ans_end = ans_start + gen_length
+        document_ids = torch.zeros_like(x)
         generation_region = torch.zeros_like(x, dtype=torch.bool)
         generation_region[:, ans_start:ans_end] = True
         num_blocks = max(1, math.ceil(gen_length / block_length))
@@ -233,11 +256,6 @@ class GestaltModelLM(LLaDAModelLM):
                 f"steps ({steps}) must be at least the number of blocks ({num_blocks})."
             )
         base_steps, extra_steps = divmod(steps, num_blocks)
-
-        position_ids = compute_2d_position_ids(
-            x,
-            image_grids=[(int(token_h), int(token_w))],
-        ).to(x.device)
 
         for block_idx in range(num_blocks):
             blk_s = ans_start + block_idx * block_length
@@ -420,6 +438,9 @@ class GestaltModelLM(LLaDAModelLM):
             ).logits
             vq_logits_cond = logits_cond[:, vq_mask[0], VISUAL_OFFSET : VISUAL_OFFSET + CODEBOOK_SIZE]
 
+            if device.type == "mps":
+                vq_logits_cond = vq_logits_cond.float()
+
             if cfg_scale > 0:
                 current_img_region = x[0, img_start:img_end].tolist()
                 uncond_token_list = uncond_header + current_img_region + tail
@@ -441,6 +462,8 @@ class GestaltModelLM(LLaDAModelLM):
                 )
                 vq_logits_uncond = uncond_out[:, uncond_vq_mask[0], VISUAL_OFFSET : VISUAL_OFFSET + CODEBOOK_SIZE]
 
+                if device.type == "mps":
+                    vq_logits_uncond = vq_logits_uncond.float()
                 vq_logits = (1 + cfg_scale) * vq_logits_cond - cfg_scale * vq_logits_uncond
             else:
                 vq_logits = vq_logits_cond

@@ -1,3 +1,4 @@
+# Modified for gestalt-mps: inference sampling and text-only adaptation.
 """Canonical Stage-III prompt templates shared by training and inference."""
 
 from typing import Iterable, List, Sequence
@@ -23,6 +24,21 @@ def text_span(token_ids: Sequence[int]) -> List[int]:
     if not token_ids:
         return []
     return [SPECIAL_TOKENS.BOS, *map(int, token_ids), SPECIAL_TOKENS.EOS]
+
+
+def build_text_condition(
+    system_tokens: Sequence[int],
+    user_tokens: Sequence[int],
+) -> List[int]:
+    """Build the experimental text-only condition from Stage III's image-free branch."""
+    return [
+        SPECIAL_TOKENS.SYSTEM_START,
+        *map(int, system_tokens),
+        SPECIAL_TOKENS.SYSTEM_END,
+        SPECIAL_TOKENS.USER_START,
+        *text_span(user_tokens),
+        SPECIAL_TOKENS.USER_END,
+    ]
 
 
 def build_mmu_condition(

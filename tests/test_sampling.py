@@ -87,3 +87,44 @@ def test_mmu_gumbel_matches_reference_ranking_with_noise_and_floor(monkeypatch, 
     oracle = logits.double().exp() / ((-torch.log(uniforms.double() + 1e-20)) ** temperature + 1e-20)
     actual = fake_model("mps")._add_gumbel_noise(logits.to("mps"), temperature)
     assert actual.argmax(-1).cpu().tolist() == oracle.argmax(-1).tolist()
+
+
+class ImageLogits(nn.Module):
+    def __init__(self, device):
+        super().__init__()
+        self.transformer = SimpleNamespace(wte=nn.Embedding(1, 1, device=device))
+        self.calls = []
+
+    def forward(self, *, input_ids, position_ids, document_ids):
+        self.calls.append((input_ids.clone(), document_ids.clone()))
+        conditional = (input_ids == 25).any()
+        logits = torch.zeros((*input_ids.shape, S.VISUAL_TOKEN_END), dtype=torch.float16 if input_ids.device.type == "mps" else torch.float32, device=input_ids.device)
+        logits[..., S.VISUAL_TOKEN_OFFSET] = 60000 if conditional else -60000
+        return SimpleNamespace(logits=logits)
+
+
+@pytest.mark.parametrize("device", ["cpu", pytest.param("mps", marks=pytest.mark.skipif(not torch.backends.mps.is_available(), reason="MPS required"))])
+@pytest.mark.parametrize("cfg_scale", [0.0, 4.0])
+def test_t2i_diffusion_cfg_and_schedule_are_finite(cfg_scale, device):
+    model = object.__new__(GestaltModelLM)
+    nn.Module.__init__(model)
+    model.model = ImageLogits(device)
+    original = model._gumbel_max_sample
+    counts = []
+
+    def check_sample(logits, temperature):
+        assert torch.isfinite(logits).all()
+        counts.append(logits.shape[1])
+        return original(logits, temperature)
+
+    model._gumbel_max_sample = check_sample
+    result = model.generate_t2i([], [25], lat_h=2, lat_w=3, timesteps=3, temperature=0, cfg_scale=cfg_scale)
+    assert result.shape == (1, 6)
+    assert ((result >= S.VISUAL_TOKEN_OFFSET) & (result < S.VISUAL_TOKEN_END)).all()
+    assert (result == S.VISUAL_TOKEN_OFFSET).all()
+    assert counts == [6, 5, 2]
+    assert len(model.model.calls) == 3 * (2 if cfg_scale else 1)
+    assert all(not documents.any() for _, documents in model.model.calls)
+    if cfg_scale:
+        for (cond, _), (uncond, _) in zip(model.model.calls[::2], model.model.calls[1::2]):
+            assert (cond == S.MASK).sum() == (uncond == S.MASK).sum()
