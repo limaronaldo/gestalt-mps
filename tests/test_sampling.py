@@ -128,3 +128,14 @@ def test_t2i_diffusion_cfg_and_schedule_are_finite(cfg_scale, device):
     if cfg_scale:
         for (cond, _), (uncond, _) in zip(model.model.calls[::2], model.model.calls[1::2]):
             assert (cond == S.MASK).sum() == (uncond == S.MASK).sum()
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="MPS required")
+def test_mmu_gumbel_preserves_largest_distinct_float32_uniforms(monkeypatch):
+    logits = torch.tensor([[0.0, 0.3]])
+    uniforms = torch.tensor([[1 - 2**-24, 1 - 2**-23]])
+    monkeypatch.setattr(torch, "rand_like", lambda value, **kwargs: uniforms.to(device=value.device, dtype=kwargs.get("dtype", value.dtype)))
+    oracle = logits.double().exp() / (-torch.log(uniforms.double() + 1e-20) + 1e-20)
+    actual = fake_model("mps")._add_gumbel_noise(logits.to("mps"), 1.0)
+    assert oracle.argmax(-1).tolist() == [0]
+    assert actual.argmax(-1).cpu().tolist() == [0]

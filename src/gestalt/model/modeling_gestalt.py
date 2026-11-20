@@ -341,7 +341,7 @@ class GestaltModelLM(LLaDAModelLM):
         if temperature <= 1e-6: return logits
         if logits.device.type == "mps":
             logits = logits.to(torch.float32)
-            noise = torch.rand_like(logits).clamp_(min=1e-20, max=1.0 - torch.finfo(torch.float32).eps)
+            noise = torch.rand_like(logits).clamp_min_(1e-20)
             log_gumbel = temperature * torch.log(-torch.log(noise))
             log_denominator = torch.logaddexp(log_gumbel, torch.full_like(log_gumbel, math.log(1e-20)))
             return logits - log_denominator
