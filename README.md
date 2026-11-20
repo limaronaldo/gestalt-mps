@@ -111,7 +111,7 @@ Text-only block-diffusion generation (128 tokens, 64 steps, block length 64, tem
 ## Memory and failure notes
 
 - Weights are about 17.5 GB (Gestalt) and 0.9 GB (IBQ). Default mode keeps both components loaded until the command returns.
-- `--low-memory` (`generate`, `ask`) releases the previous stage before loading the next and keeps only IDs/text on CPU in between. It trades time for a lower peak and does not change dtype, grid or steps.
+- `--low-memory` (`generate`, `ask`) releases the previous stage before loading the next and keeps only IDs/text on CPU in between. It preserves dtype, grid and steps. The gain depends on which stage sets the peak.
 - Sequences longer than 4,096 positions (markers, grid and answer included) are rejected before the forward pass.
 - Default dtype: BF16 on MPS and CUDA, FP32 on CPU. FP16/FP32 on MPS are explicit fallbacks only.
 - An explicitly requested backend that is unavailable is an error. There is no silent fallback to another device. Operator failures, load errors and out-of-memory conditions stop with a diagnostic. An out-of-memory configuration should be treated as unsupported.
@@ -121,16 +121,14 @@ Text-only block-diffusion generation (128 tokens, 64 steps, block length 64, tem
 
 ## Support matrix
 
-To be filled after hardware acceptance. Until then, nothing here is confirmed.
-
 | Backend | Hardware / OS | PyTorch | dtype | Level of evidence | Notes |
 | --- | --- | --- | --- | --- | --- |
-| MPS | Apple M5 Pro, 64 GiB, macOS 27.2 (target) | _tbd_ | _tbd_ | _tbd_ | _tbd_ |
-| MPS | 24-32 GiB Macs | _tbd_ | _tbd_ | not tested | |
-| CPU | _tbd_ | _tbd_ | _tbd_ | _tbd_ | |
-| CUDA | _tbd_ | _tbd_ | _tbd_ | _tbd_ | |
+| MPS | Apple M5 Pro, 64 GiB, macOS 27.2 | 2.10.0 | BF16 Gestalt, FP32 IBQ | Smoke and default profiles passed | `generate` at 512×512 and 64 steps, `ask` from pixels and tokens, and experimental `text` |
+| MPS | 24–32 GiB Macs | — | — | Not measured | |
+| CPU | Apple M5 Pro, macOS 27.2 | 2.10.0 | FP32 | Full-checkpoint short forward and IBQ parity | Full CPU CLI profile remains unmeasured |
+| CUDA | — | — | — | No hardware run | Device selection is covered by tests |
 
-Measured load time, inference time, peak RSS and MPS driver memory will be added here per configuration.
+On the tested Mac, the first 512×512 generation took 400 seconds and reached a sampled MPS driver peak of 19.98 GiB. The highest driver peak in the default profile was 22.49 GiB during `ask`. See the [validation report](docs/validation/2026-11-20-apple-silicon.md) for timing, reproducibility and low-memory measurements.
 
 ## Tests
 
@@ -152,7 +150,7 @@ This project is licensed under Apache 2.0 (see `LICENSE`). Third-party code, pin
 | [SEED-Voken (IBQ code)](https://github.com/TencentARC/SEED-Voken) | `c1544efff959ba18d453089071307a7115698551` |
 | [IBQ-Tokenizer-16384 weights](https://huggingface.co/TencentARC/IBQ-Tokenizer-16384) | `ef2200997f97118050c5b17dde48e8b78690f866` |
 
-Model weights are downloaded from their publishers and are not redistributed here; check their model cards for terms.
+The CLI downloads model weights directly from their publishers. See the model cards for terms.
 
 If you use this work, please cite the original papers:
 
