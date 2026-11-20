@@ -1,13 +1,13 @@
 # Gestalt MPS validation — 2026-11-20
 
-The tested application commit is `16615e3`. The host was an Apple M5 Pro with 64 GiB, macOS 27.2, Python 3.11.15 and PyTorch 2.10.0. All MPS inference processes ran with `PYTORCH_ENABLE_MPS_FALLBACK` unset. Runtime inference used the local pinned Hugging Face cache.
+The runtime tests ran against local commit `16615e3`. The public snapshot with identical application, test and build files is [1282651](https://github.com/limaronaldo/gestalt-mps/commit/12826513d38e784b06642670c01d90a108c02de2). The host was an Apple M5 Pro with 64 GiB, macOS 27.2, Python 3.11.15 and PyTorch 2.10.0. All MPS inference processes ran with `PYTORCH_ENABLE_MPS_FALLBACK` unset. Runtime inference used the local pinned Hugging Face cache.
 
 ## Installation and checkpoints
 
 - The final checkpoint-free suite passed all 169 tests on the Mac, including its CPU and native MPS fixtures.
 - `uv sync --locked --python 3.11 --extra dev` and `uv build --python 3.11` succeeded. A clean pip environment installed the built wheel. `pip check`, all five commands in `gestalt --help`, and offline `gestalt doctor` passed.
 - Wheel and source distribution contained the Apache license and source provenance, with zero checkpoints or project cache files.
-- `gestalt download` completed. The 17,507,601,848-byte Gestalt Safetensors and the 888,207,474-byte IBQ checkpoint matched the sizes and SHA-256 digests in the implementation plan.
+- `gestalt download` completed. The 17,507,601,848-byte Gestalt Safetensors and the 888,207,474-byte IBQ checkpoint matched the sizes and SHA-256 digests pinned in the [artifact manifest](../../src/gestalt_mps/artifacts.py).
 - Real IBQ deserialized successfully through `torch.load(weights_only=True, map_location="cpu")` after digest verification. It contained 1,088 state entries, of which 543 EMA tensors were independently matched to the reference inference architecture.
 
 ## Checkpoint and backend parity
