@@ -442,8 +442,14 @@ def child_main(argv: Sequence[str]) -> int:
     sys.modules[PHASE_MODULE] = hooks
     recorder.start()
     code = 1
+    set_observer = None
     try:
         entry = _load_callable(ns.entrypoint)
+        if ns.entrypoint == DEFAULT_ENTRYPOINT:
+            from gestalt_mps.pipeline import set_phase_observer
+
+            set_observer = set_phase_observer
+            set_observer(recorder.mark)
         code = _exit_code_of(entry(cli_argv))
     except SystemExit as exc:
         code = _exit_code_of(exc.code)
@@ -451,6 +457,8 @@ def child_main(argv: Sequence[str]) -> int:
         traceback.print_exc()
         code = 1
     finally:
+        if set_observer is not None:
+            set_observer(None)
         recorder.stop(code)
         sys.stdout.flush()
         sys.stderr.flush()

@@ -245,6 +245,27 @@ def test_run_without_phase_marks_reports_zero_marks(vr, fake, tmp_path, monkeypa
     assert set(m["mps"]["phases"]) == {"start"}  # everything lands in one phase
 
 
+def test_child_records_phases_emitted_by_the_installed_pipeline(vr, tmp_path, monkeypatch):
+    from gestalt_mps import pipeline
+
+    def cli(argv):
+        with pipeline._phase("model_load"):
+            pass
+        return 0
+
+    monkeypatch.setattr(vr, "_load_callable", lambda _: cli)
+    metrics = tmp_path / "metrics.json"
+    assert vr.child_main([
+        "--entrypoint", vr.DEFAULT_ENTRYPOINT,
+        "--metrics-file", str(metrics),
+        "--", "text", "test",
+    ]) == 0
+    recorded = json.loads(metrics.read_text())
+    assert [phase["name"] for phase in recorded["phases"]] == [
+        "model_load:start", "model_load:end",
+    ]
+
+
 def test_mps_fallback_env_is_removed_and_logged(vr, fake, tmp_path, monkeypatch):
     monkeypatch.setenv("PYTORCH_ENABLE_MPS_FALLBACK", "1")
     rec = invoke(vr, tmp_path, ["env"], fake)
