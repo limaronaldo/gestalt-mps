@@ -132,13 +132,21 @@ def test_real_block_padding_and_cpu_mps_parity(dtype):
         a, _ = cpu(x, input_ids=ids, attention_bias=mask, position_ids=positions)
         b, _ = mps(x.to('mps'), input_ids=ids.to('mps'), attention_bias=mask.to('mps'), position_ids=positions.to('mps'))
         changed = x.clone()
-        changed[:, -1] += 20
+        changed[:, -1] = -torch.roll(x[:, -1], shifts=1, dims=-1)
         cpu_changed, _ = cpu(changed, input_ids=ids, attention_bias=mask, position_ids=positions)
         c, _ = mps(changed.to('mps'), input_ids=ids.to('mps'), attention_bias=mask.to('mps'), position_ids=positions.to('mps'))
+        unmasked = mask.clone()
+        unmasked[0, 0, 0, -1] = 0
+        cpu_open, _ = cpu(x, input_ids=ids, attention_bias=unmasked, position_ids=positions)
+        cpu_open_changed, _ = cpu(changed, input_ids=ids, attention_bias=unmasked, position_ids=positions)
+        mps_open, _ = mps(x.to('mps'), input_ids=ids.to('mps'), attention_bias=unmasked.to('mps'), position_ids=positions.to('mps'))
+        mps_open_changed, _ = mps(changed.to('mps'), input_ids=ids.to('mps'), attention_bias=unmasked.to('mps'), position_ids=positions.to('mps'))
     assert torch.isfinite(a).all() and torch.isfinite(b).all()
     torch.testing.assert_close(a.float(), b.cpu().float(), atol=atol, rtol=rtol)
     torch.testing.assert_close(a[:, :-1].float(), cpu_changed[:, :-1].float(), atol=atol, rtol=rtol)
     torch.testing.assert_close(b[:, :-1].float(), c[:, :-1].float(), atol=atol, rtol=rtol)
+    assert (cpu_open[:, 0].float() - cpu_open_changed[:, 0].float()).abs().max() > 1e-3
+    assert (mps_open[:, 0].float() - mps_open_changed[:, 0].float()).abs().max() > 1e-3
 
 
 def test_interaction_ffn_routing():
